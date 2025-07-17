@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
+import wandb
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -27,7 +28,6 @@ from utils import get_network, get_training_dataloader, get_test_dataloader, War
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 
 def train(epoch):
-
     start = time.time()
     net.train()
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
@@ -44,13 +44,21 @@ def train(epoch):
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
+        wandb.log({
+            'train/loss': loss.item(),
+            'learning_rate': optimizer.param_groups[0]['lr'],
+            'epoch': epoch,
+            'step': n_iter
+        })
+        
         last_layer = list(net.children())[-1]
         for name, para in last_layer.named_parameters():
-            if 'weight' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_weights', para.grad.norm(), n_iter)
-            if 'bias' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
-
+            if para.grad is not None:
+                if 'weight' in name:
+                    wandb.log({'gradients/last_layer_weight_norm': para.grad.norm().item()}, step=n_iter)
+                if 'bias' in name:
+                    wandb.log({'gradients/last_layer_bias_norm': para.grad.norm().item()}, step=n_iter)
+        
         print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
             loss.item(),
             optimizer.param_groups[0]['lr'],
@@ -58,9 +66,6 @@ def train(epoch):
             trained_samples=batch_index * args.b + len(images),
             total_samples=len(cifar100_training_loader.dataset)
         ))
-
-        #update training loss for each iteration
-        writer.add_scalar('Train/loss', loss.item(), n_iter)
 
         if epoch <= args.warm:
             warmup_scheduler.step()
@@ -76,7 +81,6 @@ def train(epoch):
 
 @torch.no_grad()
 def eval_training(epoch=0, tb=True):
-
     start = time.time()
     net.eval()
 
@@ -84,7 +88,6 @@ def eval_training(epoch=0, tb=True):
     correct = 0.0
 
     for (images, labels) in cifar100_test_loader:
-
         if args.gpu:
             images = images.cuda()
             labels = labels.cuda()
@@ -95,29 +98,26 @@ def eval_training(epoch=0, tb=True):
         test_loss += loss.item()
         _, preds = outputs.max(1)
         correct += preds.eq(labels).sum()
-
+        
+    acc = correct.float() / len(cifar100_test_loader.dataset)
+    avg_loss = test_loss / len(cifar100_test_loader.dataset)
     finish = time.time()
-    if args.gpu:
-        print('GPU INFO.....')
-        print(torch.cuda.memory_summary(), end='')
+
     print('Evaluating Network.....')
     print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-        epoch,
-        test_loss / len(cifar100_test_loader.dataset),
-        correct.float() / len(cifar100_test_loader.dataset),
-        finish - start
+        epoch, avg_loss, acc, finish - start
     ))
-    print()
 
-    #add informations to tensorboard
-    if tb:
-        writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
-        writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
+    # WandB log
+    wandb.log({
+        'test/accuracy': acc,
+        'test/average_loss': avg_loss,
+        'epoch': epoch
+    })
 
-    return correct.float() / len(cifar100_test_loader.dataset)
+    return acc
 
-if __name__ == '__main__':
-
+if __name__ == '__main__':   
     parser = argparse.ArgumentParser()
     parser.add_argument('-net', type=str, required=True, help='net type')
     parser.add_argument('-gpu', action='store_true', default=False, help='use gpu or not')
@@ -126,6 +126,19 @@ if __name__ == '__main__':
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     args = parser.parse_args()
+
+    wandb.init(
+        project="cifar100",         # project name on wandb
+        name=f"{args.net}-{settings.TIME_NOW}",  # run name
+        config={
+            "batch_size": args.b,
+            "learning_rate": args.lr,
+            "optimizer": "SGD",
+            "epochs": settings.EPOCH,
+            "net": args.net,
+            "warmup_epochs": args.warm,
+        }
+    )
 
     net = get_network(args)
 
@@ -162,20 +175,6 @@ if __name__ == '__main__':
     else:
         checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, settings.TIME_NOW)
 
-    #use tensorboard
-    if not os.path.exists(settings.LOG_DIR):
-        os.mkdir(settings.LOG_DIR)
-
-    #since tensorboard can't overwrite old values
-    #so the only way is to create a new tensorboard log
-    writer = SummaryWriter(log_dir=os.path.join(
-            settings.LOG_DIR, args.net, settings.TIME_NOW))
-    input_tensor = torch.Tensor(1, 3, 32, 32)
-    if args.gpu:
-        input_tensor = input_tensor.cuda()
-    writer.add_graph(net, input_tensor)
-
-    #create checkpoint folder to save model
     if not os.path.exists(checkpoint_path):
         os.makedirs(checkpoint_path)
     checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
@@ -217,6 +216,7 @@ if __name__ == '__main__':
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
             print('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
+            wandb.save(weights_path)
             best_acc = acc
             continue
 
@@ -224,5 +224,6 @@ if __name__ == '__main__':
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
             print('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
+            wandb.save(weights_path)
 
-    writer.close()
+    wandb.finish()
