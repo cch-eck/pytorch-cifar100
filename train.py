@@ -125,6 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    parser.add_argument('-e', '--epochs', type=int, help='# of training epochs')
     args = parser.parse_args()
 
     wandb.init(
@@ -200,7 +201,8 @@ if __name__ == '__main__':
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
 
 
-    for epoch in range(1, settings.EPOCH + 1):
+    total_epochs = args.epochs if args.epochs else settings.EPOCH 
+    for epoch in range(1, total_epochs + 1):
         if epoch > args.warm:
             train_scheduler.step(epoch)
 
