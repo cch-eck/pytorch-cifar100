@@ -59,14 +59,13 @@ def train(epoch):
                 if 'bias' in name:
                     wandb.log({'gradients/last_layer_bias_norm': para.grad.norm().item()}, step=n_iter)
         
-        print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-            loss.item(),
-            optimizer.param_groups[0]['lr'],
-            epoch=epoch,
-            trained_samples=batch_index * args.b + len(images),
-            total_samples=len(cifar100_training_loader.dataset)
-        ))
-
+        # print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
+        #     loss.item(),
+        #     optimizer.param_groups[0]['lr'],
+        #     epoch=epoch,
+        #     trained_samples=batch_index * args.b + len(images),
+        #     total_samples=len(cifar100_training_loader.dataset)
+        # ))
         if epoch <= args.warm:
             warmup_scheduler.step()
 
@@ -98,10 +97,10 @@ def eval_training(epoch=0, tb=True):
     avg_loss = test_loss / len(cifar100_test_loader.dataset)
     finish = time.time()
 
-    print('Evaluating Network.....')
-    print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-        epoch, avg_loss, acc, finish - start
-    ))
+    # print('Evaluating Network.....')
+    # print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
+    #     epoch, avg_loss, acc, finish - start
+    # ))
 
     # WandB log
     wandb.log({
