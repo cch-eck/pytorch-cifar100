@@ -58,14 +58,7 @@ def train(epoch):
                     wandb.log({'gradients/last_layer_weight_norm': para.grad.norm().item()}, step=n_iter)
                 if 'bias' in name:
                     wandb.log({'gradients/last_layer_bias_norm': para.grad.norm().item()}, step=n_iter)
-        
-        # print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-        #     loss.item(),
-        #     optimizer.param_groups[0]['lr'],
-        #     epoch=epoch,
-        #     trained_samples=batch_index * args.b + len(images),
-        #     total_samples=len(cifar100_training_loader.dataset)
-        # ))
+
         if epoch <= args.warm:
             warmup_scheduler.step()
 
